@@ -12,7 +12,7 @@ import os
 
 #loading the images
 #base directory
-base_dir = 'Star wars Images'
+base_dir = r'Keras_CNN-StarWars_Characters_classifier/Star wars Images'
 
 #train_dir
 train_dir = os.path.join(base_dir, 'train')
@@ -46,6 +46,8 @@ train_darth_fnames = os.listdir(train_darth_vader_dir)
 #yoda
 train_yoda_fnames = os.listdir(train_yoda_dir)
 # print(train_yoda_fnames[:10])
+#chewbacca
+train_chewbacca_fnames = os.listdir(train_chewbacca_dir)
 
 # Parameters for our graph; we'll output images in a 4x4 configuration
 nrows = 4
@@ -78,17 +80,19 @@ plt.show()
 
 from keras.applications.resnet50 import ResNet50, preprocess_input
 
+#Initializing the ResNet50 model and reusing it
 base_model = ResNet50(weights='imagenet',
                       include_top=False,
                       input_shape=(150, 150, 3))
 
-#data genrators
+#data genrators with image augmentation
 train_datagen = ImageDataGenerator(
                 preprocessing_function=preprocess_input,
                 rotation_range=90,
                 horizontal_flip=True,
                 vertical_flip=True)
 
+#test data should not be augmented
 test_datagen = ImageDataGenerator(preprocessing_function=preprocess_input)
 
 #train generator
@@ -103,7 +107,8 @@ validation_generator = train_datagen.flow_from_directory(
                     target_size=(150, 150),
                     batch_size=8)
 
- #Building top layers
+#################################### Fully Connected Dende Layers ################################
+#Building top layers
 from keras.layers import Dense, Flatten, Dropout
 from keras.models import Model
 
@@ -111,9 +116,13 @@ def build_finetune_model(base_model, dropout, fc_layers, num_classes):
     for layer in base_model.layers:
         layer.trainable = False
     
+    #output from the ResNet50 models last layer
     x = base_model.output
+    
     #Flattening into 1D vector
     x = Flatten()(x)
+    
+    #looping over the number of fully connected layers
     for fc in fc_layers:
         x = Dense(fc, activation='relu')(x)
         #dropouts
@@ -129,7 +138,7 @@ def build_finetune_model(base_model, dropout, fc_layers, num_classes):
 
 ################################# Training the model #################################################
 #classes
-class_list = ['darth vader', 'yoda', 'chewbacca']
+class_list = ['chewbacca', 'darth_vader', 'yoda']
 #number of hiiden layers and nodes
 fc_layers = [512, 512]
 #dropout percentage 
@@ -138,16 +147,45 @@ dropout = 0.5
 #getting the model
 finetune_model = build_finetune_model(base_model, dropout, fc_layers, len(class_list))
 
-
+#optimizer for minimizing the loss 
 from keras.optimizers import  Adam
 adam = Adam(lr=0.00001)
 
+#compiling/configuring the model
 finetune_model.compile(adam, loss='categorical_crossentropy', metrics=['accuracy'])
 
+#training the model
 history = finetune_model.fit_generator(train_generator, epochs=10, workers=8, 
                                         steps_per_epoch=100, 
                                         shuffle=True, 
                                         validation_data=validation_generator,
                                         validation_steps=50)
+#################################### Plotting ############################################
+def plot_training(history):
+    #Retrieving the acc, loss, val_acc and val_loss from the model at each epoch
+    acc = history.history['acc']
+    val_acc = history.history['val_acc']
+    loss = history.history['loss']
+    val_loss = history.history['val_loss']
+    
+    #number of epochs
+    epochs = range(len(acc))
+    
+    #plotting Training vs Validation accuracy
+    plt.plot(epochs, acc)
+    plt.plot(epochs, val_acc)
+    plt.title('Training and validation accuracy')
 
+    plt.figure()
+    #plotting Training vs Validation loss
+    plt.plot(epochs, loss)
+    plt.plot(epochs, val_loss)
+    plt.title('Training and validation loss')
+    plt.show()
+
+    #plt.savefig('acc_vs_epochs.png')
+    
+plot_training(history)
+
+#Saving the model for future predictions
 finetune_model.save('ResNet50_Star.h5')
