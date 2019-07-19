@@ -1,10 +1,18 @@
-import os
-import matplotlib.pyplot as plt
-from tensorflow.keras.preprocessing.image import load_img, ImageDataGenerator
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Jul 17 12:39:26 2019
 
-################################### Image Directory ###############################
+@author: errperei
+"""
+
+from keras.preprocessing.image import ImageDataGenerator
+import matplotlib.pyplot as plt
+import matplotlib.image as mpimg
+import os
+
+#loading the images
 #base directory
-base_dir = r'C:\Users\errperei\Desktop\HPE\Errol_docs\Python Exercises\GIT REPO\Keras_CNN-StarWars_Characters_classifier\Star wars Images'
+base_dir = 'Star wars Images'
 
 #train_dir
 train_dir = os.path.join(base_dir, 'train')
@@ -24,175 +32,122 @@ train_chewbacca_dir = os.path.join(train_dir, 'chewbacca')
 #validation darth vader
 validation_darth_dir = os.path.join(validation_dir, 'darth vader')
 
-#validation darth vader
+#validation yoda 
 validation_yoda_dir = os.path.join(validation_dir, 'yoda')
 
 #validation chewbacca 
 validation_chewbacca_dir = os.path.join(validation_dir, 'chewbacca')
 
-############################loading the images name ###############################
-#darth vader train image names
+########################## Displaying some images ##############################
+#loading the images name
+#darth vader
 train_darth_fnames = os.listdir(train_darth_vader_dir)
-print('Darth Vader train Images: {}'.format(len(train_darth_fnames)))
-
-#yoda train image names
+# print(train_darth_fnames[:10])
+#yoda
 train_yoda_fnames = os.listdir(train_yoda_dir)
-print('Yoda train Images: {}'.format(len(train_yoda_fnames)))
+# print(train_yoda_fnames[:10])
 
-#Chewbacca train image names
-train_chewbacca_fnames = os.listdir(train_chewbacca_dir)
-print('Chewbacca train Images: {}'.format(len(train_chewbacca_fnames)))
+# Parameters for our graph; we'll output images in a 4x4 configuration
+nrows = 4
+ncols = 4
 
-######################### displaying Images ###################################
-#some constants for the training
-IMAGE_SIZE = (200, 200)
-batch_size = 100
-EPOCHS = 5
+# Index for iterating over images
+pic_index = 0
 
-plt.figure(0, figsize=(12, 20))
-cpt = 0
+# Set up matplotlib fig, and size it to fit 4x4 pics
+fig = plt.gcf()
+fig.set_size_inches(ncols * 5, nrows * 5)
 
-for characters in os.listdir(train_dir):
-    for i in range(1, 4):
-        cpt = cpt + 1
-        plt.subplot(3, 3, cpt)
-        img = load_img(os.path.join(train_dir, characters) + "/" + os.listdir(train_dir +"/"+ characters)[i], target_size=(200, 200))
-        plt.imshow(img, cmap='gray')
-        
-plt.tight_layout()
+pic_index += 8
+next_darth_pix = [os.path.join(train_darth_vader_dir, fname) 
+                for fname in train_darth_fnames[pic_index-8:pic_index]]
+next_yoda_pix = [os.path.join(train_yoda_dir, fname) 
+                for fname in train_yoda_fnames[pic_index-8:pic_index]]
+
+for i, img_path in enumerate(next_darth_pix+next_yoda_pix):
+  # Set up subplot; subplot indices start at 1
+  sp = plt.subplot(nrows, ncols, i + 1)
+  sp.axis('Off') # Don't show axes (or gridlines)
+
+  img = mpimg.imread(img_path)
+  plt.imshow(img)
+
 plt.show()
 
+####################################### Transfer Learning ###################################################
 
-########################### Setup Image Generators ################################
+from keras.applications.resnet50 import ResNet50, preprocess_input
+
+base_model = ResNet50(weights='imagenet',
+                      include_top=False,
+                      input_shape=(150, 150, 3))
+
+#data genrators
 train_datagen = ImageDataGenerator(
-                rotation_range=40,
+                preprocessing_function=preprocess_input,
+                rotation_range=90,
                 horizontal_flip=True,
-                vertical_flip=True,
-                width_shift_range=0.2,
-                shear_range=0.2,
-                height_shift_range=0.2)
+                vertical_flip=True)
 
-#No augmentation used for the test dataset
-test_datagen = ImageDataGenerator()
+test_datagen = ImageDataGenerator(preprocessing_function=preprocess_input)
 
-#Creating the train data generator
+#train generator
 train_generator = train_datagen.flow_from_directory(
                     train_dir,
-                    target_size=IMAGE_SIZE,
-                    batch_size=batch_size,
-                    class_mode='categorical',
-                    shuffle=True
-                    )
-#creating the validation data generator
-test_generator = test_datagen.flow_from_directory(
+                    target_size=(150, 150),
+                    batch_size=8)
+
+#validation generator
+validation_generator = train_datagen.flow_from_directory(
                     validation_dir,
-                    target_size=IMAGE_SIZE,
-                    batch_size=batch_size,
-                    class_mode='categorical',
-                    shuffle=True
-                    )
+                    target_size=(150, 150),
+                    batch_size=8)
 
-########################### COnvolution Layers #####################################
-from tensorflow.keras.layers import Dense, Dropout, Input, Conv2D, MaxPooling2D, GlobalAveragePooling2D, Flatten, BatchNormalization, Activation
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.models import Model
+ #Building top layers
+from keras.layers import Dense, Flatten, Dropout
+from keras.models import Model
 
-#number of possible label values
-num_labels = 3
+def build_finetune_model(base_model, dropout, fc_layers, num_classes):
+    for layer in base_model.layers:
+        layer.trainable = False
+    
+    x = base_model.output
+    #Flattening into 1D vector
+    x = Flatten()(x)
+    for fc in fc_layers:
+        x = Dense(fc, activation='relu')(x)
+        #dropouts
+        x = Dropout(dropout)(x)
+    
+    #output layer
+    predictions = Dense(num_classes, activation='sigmoid')(x)
+    
+    #creating a model
+    finetune_model = Model(base_model.input, predictions)
 
-#input layer
-img_input = Input(shape=(200, 200, 3))
+    return finetune_model
 
-#1-Convolution
-x = Conv2D(64, (3, 3), input_shape=(200, 200, 1), padding='same')(img_input)
-x = BatchNormalization()(x)
-x = Activation('relu')(x)
-x = MaxPooling2D(pool_size=(2, 2))(x)
-x = Dropout(0.25)(x)
+################################# Training the model #################################################
+#classes
+class_list = ['darth vader', 'yoda', 'chewbacca']
+#number of hiiden layers and nodes
+fc_layers = [512, 512]
+#dropout percentage 
+dropout = 0.5
 
-#2-Convolution
-x = Conv2D(128, (5, 5), padding='same')(x)
-x = BatchNormalization()(x)
-x = Activation('relu')(x)
-x = MaxPooling2D(pool_size=(2, 2))(x)
-x = Dropout(0.25)(x)
-
-#3-Convolution
-x = Conv2D(512, (3, 3), padding='same')(x)
-x = BatchNormalization()(x)
-x = Activation('relu')(x)
-x = MaxPooling2D(pool_size=(2, 2))(x)
-x = Dropout(0.25)(x)
-
-#4-Convolution
-x = Conv2D(512, (3, 3), padding='same')(x)
-x = BatchNormalization()(x)
-x = Activation('relu')(x)
-x = MaxPooling2D(pool_size=(2, 2))(x)
-x = Dropout(0.25)(x)
-
-######################### Fully connected layuers #############################
-
-#flattening to a 1D vector
-x = Flatten()(x)
-
-#Fully connected 1st layer
-x = Dense(256)(x)
-x = BatchNormalization()(x)
-x = Activation('relu')(x)
-x = Dropout(0.25)(x)
-
-#Fully connected 2nd layer
-x = Dense(512)(x)
-x = BatchNormalization()(x)
-x = Activation('relu')(x)
-x = Dropout(0.25)(x)
-
-output = Dense(num_labels, activation='softmax')(x)
-
-#initializing the optimizerr
-opt = Adam(0.0001)
+#getting the model
+finetune_model = build_finetune_model(base_model, dropout, fc_layers, len(class_list))
 
 
-#Initializing the model
-model = Model(img_input, output)
-#configuring the model
-model.compile(optimizer=opt,
-              loss='categorical_crossentropy',
-              metrics=['acc'])
+from keras.optimizers import  Adam
+adam = Adam(lr=0.00001)
 
-########################## Training the model #####################################
-from tensorflow.keras.callbacks import ModelCheckpoint
+finetune_model.compile(adam, loss='categorical_crossentropy', metrics=['accuracy'])
 
-#Creating a checkpoint and saving the model weights
-checkpoint = ModelCheckpoint("model_weights.h5", monitor='val_acc', verbose=1, save_best_only=True, mode='max')
-callbacks_list = [checkpoint]
+history = finetune_model.fit_generator(train_generator, epochs=10, workers=8, 
+                                        steps_per_epoch=100, 
+                                        shuffle=True, 
+                                        validation_data=validation_generator,
+                                        validation_steps=50)
 
-#training the model
-history = model.fit_generator(generator=train_generator,
-                              steps_per_epoch = 100,
-                              epochs = EPOCHS,
-                              validation_data = test_generator,
-                              validation_steps = test_generator.n//test_generator.batch_size,
-                              verbose=2,
-                              callbacks=callbacks_list)
-
-########################### Analyzing the results #################################
-#Retrieving the accuracy and loss from the model at each epoch
-acc = history.history['acc']
-val_acc = history.history['val_acc']
-loss = history.history['loss']
-val_loss = history.history['val_loss']
-
-#plotting the acc vs val_acc plot
-epochs = len(acc)
-
-plt.plot(epochs, acc)
-plt.plot(epochs, val_acc)
-plt.title('Training and validation accuracy')
-
-plt.figure()
-plt.plot(epochs, loss)
-plt.plot(epochs, val_loss)
-plt.title('Training and validation loss')
-plt.show()
+finetune_model.save('ResNet50_Star.h5')
