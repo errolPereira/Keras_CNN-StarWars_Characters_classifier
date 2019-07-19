@@ -1,4 +1,4 @@
-# Keras_CNN-StarWars_Characters_classifier-
+# Star Wars Classifier - 95%
 A repo to classify the StarWars Characters
 
 A model pretrained on the famous ResNEt and having an accuracy of 95%.
